@@ -1,0 +1,69 @@
+# ==========================================
+# Redmi K40 Gaming (ares) 设备配置
+# Android 13 | Kernel 4.14.186 | MT6893
+# ==========================================
+
+# ===== 设备基础信息 =====
+DEVICE_NAME="Redmi K40 Gaming"
+DEVICE_CODENAME="ares"
+DEVICE_CODENAME_IN="aresin"  # 印度版
+DEVICE_BRAND="Xiaomi"
+CHIPSET="MediaTek MT6893 / Dimensity 1200"
+KERNEL_VERSION="4.14"
+ANDROID_VERSION="13"
+MIUI_VERSION="14"
+ARCH="arm64"
+
+# ===== 内核源码 =====
+KERNEL_SOURCE="https://github.com/MiCode/Xiaomi_Kernel_OpenSource"
+KERNEL_BRANCH="ares-t-oss"
+DEFCONFIG="ares_defconfig"
+
+# 备选 defconfig（根据实际情况调整）
+# DEFCONFIG="k6893v1_64_ares_defconfig"
+# DEFCONFIG="vendor/ares_defconfig"
+
+# ===== 工具链 =====
+TOOLCHAIN="clang"
+CLANG_VERSION="proton-master"
+# GCC 备选（4.14 内核兼容性更好）
+# TOOLCHAIN="gcc"
+# GCC_VERSION="4.9"
+
+# ===== KernelSU 配置 =====
+KERNELSU_VARIANT="resukisu"  # resukisu / sukisu / official
+KERNELSU_BRANCH="main"
+KERNELSU_MTK_COMPAT=true
+
+# ===== SUSFS 配置 =====
+ENABLE_SUSFS=true
+SUSFS_VERSION="4.14"
+SUSFS_HASH="auto"  # auto / -1(关闭) / 特定哈希值
+
+# ===== KPM 配置 =====
+ENABLE_KPM=true
+KPM_EMBED_MODULES=""  # 嵌入的 KPM 模块，逗号分隔
+KPM_MODULES_DIR="ares/kpms"
+
+# ===== 编译配置 =====
+BUILD_THREADS="auto"
+OUTPUT_FORMAT="anykernel3"
+CCACHE_ENABLE=true
+
+# ===== MTK 平台特殊配置 =====
+MTK_PLATFORM=true
+MTK_CHIPSET="mt6893"
+MTK_DTB_PATH="arch/arm64/boot/dts/mediatek"
+MTK_DTBO_SUPPORT=true
+
+# ===== 输出文件 =====
+OUTPUT_IMAGE="Image.gz"
+OUTPUT_IMAGE_DTB="Image.gz-dtb"
+OUTPUT_DTBO="dtbo.img"
+
+# ===== 已知问题与备注 =====
+# 1. 4.14 内核 kprobe 可能不稳定，如卡米请改用手动集成方式
+# 2. SUSFS 补丁需根据具体内核子版本（4.14.186）调整
+# 3. KPM 模块需单独编译，与内核版本严格匹配
+# 4. MTK 平台需开启 CONFIG_KSU_MTK_COMPAT=y
+# 5. WiFi 失效请检查内核分支与系统版本是否匹配

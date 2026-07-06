@@ -1,0 +1,30 @@
+# 编译输出
+kernel/
+out/
+clang/
+gcc/
+AnyKernel3/
+K40G-*.zip
+build.log
+
+# 临时文件
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# 其他
+*.old
+*.bak
+*.orig
+*.rej
