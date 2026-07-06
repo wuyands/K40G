@@ -1,12 +1,8 @@
-name: Build Kernel for Redmi K40 Gaming (ares) - A13
+name: Build Kernel for K40G (ares)
 
 on:
   workflow_dispatch:
     inputs:
-      KERNEL_SOURCE:
-        description: 'Kernel Source URL'
-        required: true
-        default: 'https://github.com/MiCode/Xiaomi_Kernel_OpenSource'
       KERNEL_BRANCH:
         description: 'Kernel Branch'
         required: true
@@ -19,60 +15,36 @@ on:
         description: 'KernelSU Variant (resukisu/sukisu/official)'
         required: true
         default: 'resukisu'
-      KERNELSU_BRANCH:
-        description: 'KernelSU Branch'
-        required: true
-        default: 'main'
       ENABLE_SUSFS:
-        description: 'Enable SUSFS (true/false)'
+        description: 'Enable SUSFS'
         required: true
         default: 'true'
       ENABLE_KPM:
-        description: 'Enable KPM (Kernel Patch Module) Support'
+        description: 'Enable KPM Support'
         required: true
         default: 'true'
-      EMBED_KPMS:
-        description: 'Embed KPM modules (comma-separated, leave empty for none)'
-        required: false
-        default: ''
-      CLANG_VERSION:
-        description: 'Clang Version (proton-master)'
-        required: true
-        default: 'proton-master'
-      KERNEL_VERSION:
-        description: 'Kernel Major Version (for SUSFS patches)'
-        required: true
-        default: '4.14'
 
 jobs:
   build:
     runs-on: ubuntu-20.04
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Setup Build Environment
+      - name: Install Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git ccache automake flex lzop bison gperf build-essential \
-            zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev \
-            squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng \
-            maven libssl-dev pwgen libswitch-perl policycoreutils minicom \
-            libx11-dev libc6-dev-i386 lib32ncurses5-dev lib32z1-dev \
-            libgl1-mesa-dev xsltproc unzip python3-pip python3 python2.7 \
-            device-tree-compiler bc cpio kmod
+          sudo apt install -y git build-essential curl zip bc bison flex \
+            libssl-dev device-tree-compiler python3 cpio kmod
 
-      - name: Setup Clang Toolchain
+      - name: Setup Proton Clang
         run: |
-          echo "=== Setting up Proton Clang ==="
           git clone --depth=1 https://github.com/kdrag0n/proton-clang -b master clang
           echo "PATH=$PWD/clang/bin:$PATH" >> $GITHUB_ENV
-          clang --version | head -n1
 
       - name: Clone Kernel Source
         run: |
-          echo "=== Cloning kernel source ==="
-          git clone --depth=1 ${{ github.event.inputs.KERNEL_SOURCE }} \
+          git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource \
             -b ${{ github.event.inputs.KERNEL_BRANCH }} kernel
           cd kernel
           echo "Kernel version: $(make kernelversion)"
@@ -80,97 +52,73 @@ jobs:
       - name: Apply Device Patches
         run: |
           cd kernel
-          echo "=== Applying device patches ==="
           if [ -d ../ares/patches ]; then
             for patch in ../ares/patches/*.patch; do
-              if [ -f "$patch" ]; then
-                echo "Applying: $(basename $patch)"
-                git apply "$patch" || echo "WARNING: $patch failed"
-              fi
+              [ -f "$patch" ] || continue
+              echo "Applying: $(basename $patch)"
+              git apply "$patch" || echo "WARNING: $patch failed"
             done
-          else
-            echo "No device patches found"
           fi
 
-      - name: Add KernelSU / ReSukiSU
+      - name: Add KernelSU
         run: |
           cd kernel
-          echo "=== Adding KernelSU variant: ${{ github.event.inputs.KERNELSU_VARIANT }} ==="
+          echo "Adding ${{ github.event.inputs.KERNELSU_VARIANT }}..."
           
           case "${{ github.event.inputs.KERNELSU_VARIANT }}" in
             resukisu)
-              echo "Adding ReSukiSU (branch: ${{ github.event.inputs.KERNELSU_BRANCH }})"
-              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/kernel/main/setup.sh" | bash -s ${{ github.event.inputs.KERNELSU_BRANCH }}
+              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/kernel/main/setup.sh" | bash
               ;;
             sukisu)
-              echo "Adding SukiSU-Ultra (susfs-dev branch)"
               curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
               ;;
             official)
-              echo "Adding Official KernelSU v0.9.5"
               curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
-              ;;
-            *)
-              echo "Unknown variant: ${{ github.event.inputs.KERNELSU_VARIANT }}"
-              exit 1
               ;;
           esac
           
-          echo "=== KernelSU added successfully ==="
+          echo "KernelSU added successfully"
 
       - name: Apply SUSFS Patches
         if: ${{ github.event.inputs.ENABLE_SUSFS == 'true' && github.event.inputs.KERNELSU_VARIANT != 'sukisu' }}
         run: |
           cd kernel
-          echo "=== Applying SUSFS patches for kernel ${{ github.event.inputs.KERNEL_VERSION }} ==="
-          KERNEL_VER="${{ github.event.inputs.KERNEL_VERSION }}"
-          
-          if [ -d "../patches/susfs/$KERNEL_VER" ] && [ -n "$(ls -A ../patches/susfs/$KERNEL_VER/*.patch 2>/dev/null)" ]; then
-            for patch in ../patches/susfs/$KERNEL_VER/*.patch; do
+          echo "Applying SUSFS patches..."
+          if [ -d ../patches/susfs/4.14 ]; then
+            for patch in ../patches/susfs/4.14/*.patch; do
+              [ -f "$patch" ] || continue
               echo "Applying: $(basename $patch)"
               git apply "$patch" || echo "WARNING: $patch failed"
             done
           else
-            echo "SUSFS patches for $KERNEL_VER not found in repo, using built-in if available"
+            echo "No SUSFS patches found"
           fi
 
-      - name: Configure Kernel (KPM + KSU + SUSFS)
+      - name: Configure Kernel
         run: |
           cd kernel
-          echo "=== Configuring kernel options ==="
           
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG }}"
           
           if [ ! -f "$DEFCONFIG_PATH" ]; then
-            echo "ERROR: Defconfig not found at $DEFCONFIG_PATH"
-            echo "Searching for defconfig..."
-            find arch/arm64/configs -name "*ares*" -o -name "*mt6893*" -o -name "*k6893*" | head -20
+            echo "ERROR: Defconfig not found: $DEFCONFIG_PATH"
+            find arch/arm64/configs -name "*ares*" -o -name "*mt6893*" | head -20
             exit 1
           fi
           
-          echo "Using defconfig: $DEFCONFIG_PATH"
-          
-          cat >> "$DEFCONFIG_PATH" << 'KSU_EOF'
+          cat >> "$DEFCONFIG_PATH" << 'EOF'
 
-# ==========================================
-# ReSukiSU / KernelSU 基础配置
-# ==========================================
+# KernelSU
 CONFIG_KSU=y
 CONFIG_KSU_MTK_COMPAT=y
 
-# ==========================================
-# KPM (Kernel Patch Module) 支持
-# ==========================================
+# KPM Support
 CONFIG_KPM=y
 CONFIG_KSU_KPM=y
 CONFIG_KSU_KPM_PARAMS=y
-
-# KPM 必需的内核符号
 CONFIG_KALLSYMS=y
 CONFIG_KALLSYMS_ALL=y
 CONFIG_KALLSYMS_BASE_RELATIVE=y
-
-# KPM 模块加载支持
 CONFIG_MODULES=y
 CONFIG_MODULE_UNLOAD=y
 CONFIG_MODVERSIONS=y
@@ -178,9 +126,7 @@ CONFIG_MODULE_SRCVERSION_ALL=y
 CONFIG_MODULE_FORCE_LOAD=y
 CONFIG_MODULE_FORCE_UNLOAD=y
 
-# ==========================================
-# KPM hook 基础设施
-# ==========================================
+# KPM Hook Infrastructure
 CONFIG_KPROBES=y
 CONFIG_HAVE_KPROBES=y
 CONFIG_KPROBE_EVENTS=y
@@ -191,67 +137,9 @@ CONFIG_FTRACE_SYSCALLS=y
 CONFIG_FUNCTION_GRAPH_TRACER=y
 CONFIG_KPROBES_ON_FTRACE=y
 CONFIG_UPROBES=y
-KSU_EOF
+EOF
           
-          echo "=== Defconfig updated ==="
-          echo "KPM enabled: ${{ github.event.inputs.ENABLE_KPM }}"
-          echo "SUSFS enabled: ${{ github.event.inputs.ENABLE_SUSFS }}"
-
-      - name: Embed KPM Modules
-        if: ${{ github.event.inputs.EMBED_KPMS != '' }}
-        run: |
-          cd kernel
-          echo "=== Preparing KPM embedding ==="
-          echo "KPM list: ${{ github.event.inputs.EMBED_KPMS }}"
-          
-          mkdir -p ksu/kpms-embedded
-          
-          # 注意：实际使用时需要将 .kpm 文件放到 ares/kpms/ 目录
-          if [ -d "../ares/kpms" ]; then
-            KPM_LIST="${{ github.event.inputs.EMBED_KPMS }}"
-            IFS=',' read -ra KPM_ARRAY <<< "$KPM_LIST"
-            for kpm_name in "${KPM_ARRAY[@]}"; do
-              kpm_name=$(echo "$kpm_name" | xargs)
-              if [ -n "$kpm_name" ] && [ -f "../ares/kpms/$kpm_name.kpm" ]; then
-                cp "../ares/kpms/$kpm_name.kpm" ksu/kpms-embedded/
-                echo "Embedded: $kpm_name.kpm"
-              else
-                echo "WARNING: KPM not found: $kpm_name.kpm"
-              fi
-            done
-          else
-            echo "KPM directory not found: ares/kpms/"
-            echo "Create this directory and place .kpm files there for embedding"
-          fi
-
-      - name: MTK Platform Compatibility Fix
-        run: |
-          cd kernel
-          echo "=== Applying MTK platform fixes ==="
-          
-          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG }}"
-          
-          cat >> "$DEFCONFIG_PATH" << 'MTK_EOF'
-
-# ==========================================
-# MTK 平台特殊配置
-# ==========================================
-# MTK 平台优化
-CONFIG_KSU_MTK_COMPAT=y
-
-# 调试相关（可根据需要关闭）
-# CONFIG_KSU_DEBUG is not set
-# CONFIG_SUSFS_DEBUG is not set
-MTK_EOF
-          
-          # 检查 mtk_customize.h
-          if [ -f include/linux/mtk_customize.h ]; then
-            echo "Found mtk_customize.h"
-            # 检查潜在冲突
-            grep -l "CONFIG_KSU" include/linux/mtk_customize.h 2>/dev/null && echo "WARNING: KSU conflict in mtk_customize.h" || true
-          fi
-          
-          echo "=== MTK fixes applied ==="
+          echo "Defconfig updated"
 
       - name: Build Kernel
         run: |
@@ -268,82 +156,51 @@ MTK_EOF
           export OBJDUMP=llvm-objdump
           export STRIP=llvm-strip
           
-          echo "=== Generating defconfig ==="
           make O=out ${{ github.event.inputs.DEFCONFIG }}
-          
-          echo "=== Verifying config ==="
-          echo "--- KSU/KPM related configs ---"
-          grep -E "CONFIG_(KSU|KPM|KALLSYMS_ALL|MODULES|KPROBES)=y" out/.config || true
-          
-          echo "=== Building kernel with $(nproc) threads ==="
           make O=out -j$(nproc) 2>&1 | tee build.log
           
-          echo "=== Build output ==="
+          echo "Build output:"
           ls -la out/arch/arm64/boot/
           
-          # 检查是否编译成功
-          if [ -f out/arch/arm64/boot/Image.gz ] || [ -f out/arch/arm64/boot/Image ]; then
-            echo "=== Build SUCCESS ==="
+          if [ -f out/arch/arm64/boot/Image.gz ] || [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            echo "Build SUCCESS"
           else
-            echo "=== Build FAILED ==="
-            echo "Last 50 lines of build log:"
+            echo "Build FAILED"
             tail -50 build.log
             exit 1
           fi
 
-      - name: Package with AnyKernel3
+      - name: Package AnyKernel3
         run: |
-          echo "=== Packaging with AnyKernel3 ==="
-          
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
           
-          # 复制内核镜像
           if [ -f kernel/out/arch/arm64/boot/Image.gz-dtb ]; then
             cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
-            echo "Using Image.gz-dtb"
           elif [ -f kernel/out/arch/arm64/boot/Image.gz ]; then
             cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
-            echo "Using Image.gz"
           fi
           
-          # MTK DTB
           if [ -d kernel/out/arch/arm64/boot/dts/mediatek ]; then
             mkdir -p AnyKernel3/dtb
             cp kernel/out/arch/arm64/boot/dts/mediatek/*.dtb AnyKernel3/dtb/
-            echo "Copied $(ls kernel/out/arch/arm64/boot/dts/mediatek/*.dtb | wc -l) MTK DTB files"
           fi
           
-          # DTBO
           if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
-            echo "Copied dtbo.img"
           fi
           
-          # 生成版本信息
-          cat > AnyKernel3/version.txt << EOF
-Device: Redmi K40 Gaming (ares)
-Kernel: ${{ github.event.inputs.KERNEL_BRANCH }}
-KernelSU: ${{ github.event.inputs.KERNELSU_VARIANT }}
-SUSFS: ${{ github.event.inputs.ENABLE_SUSFS }}
-KPM: ${{ github.event.inputs.ENABLE_KPM }}
-Build Date: $(date +"%Y-%m-%d %H:%M")
-Build by: GitHub Actions
-EOF
-          
-          # 自定义 anykernel.sh 设备信息
           sed -i 's/device.name1=.*/device.name1=ares/' AnyKernel3/anykernel.sh
           sed -i 's/device.name2=.*/device.name2=aresin/' AnyKernel3/anykernel.sh
           sed -i 's/device.name3=.*/device.name3=Redmi K40 Gaming/' AnyKernel3/anykernel.sh
           
-          # 打包
           cd AnyKernel3
           ZIP_NAME="K40G-${{ github.event.inputs.KERNELSU_VARIANT }}-$(date +%Y%m%d-%H%M).zip"
           zip -r9 "../$ZIP_NAME" * -x "*.git*" "README*"
           
-          echo "=== Package created: $ZIP_NAME ==="
+          echo "Package: $ZIP_NAME"
           ls -la "../$ZIP_NAME"
 
-      - name: Upload Kernel Artifact
+      - name: Upload Kernel
         uses: actions/upload-artifact@v3
         with:
           name: K40G-Kernel
